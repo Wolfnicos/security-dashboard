@@ -3,10 +3,593 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Security Dashboard</title>
+    <title>Security Dashboard — SOC Monitor</title>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <!-- Leaflet for map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        /* ── Reset & Base ──────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg-primary:   #0a0e17;
+            --bg-card:      #111827;
+            --bg-card-alt:  #1a2234;
+            --border:       #1e293b;
+            --text-primary: #e2e8f0;
+            --text-muted:   #64748b;
+            --accent-cyan:  #06b6d4;
+            --accent-blue:  #3b82f6;
+            --sev-critical: #ef4444;
+            --sev-high:     #f97316;
+            --sev-medium:   #eab308;
+            --sev-low:      #22c55e;
+            --glow-cyan:    0 0 20px rgba(6, 182, 212, 0.15);
+        }
+
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ── Header ────────────────────────────────────────── */
+        .header {
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .header-title .shield {
+            width: 36px;
+            height: 36px;
+            background: var(--accent-cyan);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .header h1 span {
+            color: var(--accent-cyan);
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #22c55e;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+            50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+        }
+
+        /* ── Layout ────────────────────────────────────────── */
+        .container {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+
+        /* ── Stat Cards ────────────────────────────────────── */
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem 1.5rem;
+            position: relative;
+            overflow: hidden;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: var(--glow-cyan);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+        }
+
+        .card:nth-child(1)::before { background: var(--accent-cyan); }
+        .card:nth-child(2)::before { background: var(--accent-blue); }
+        .card:nth-child(3)::before { background: var(--sev-critical); }
+        .card:nth-child(4)::before { background: var(--sev-low); }
+
+        .card-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .card-value {
+            font-size: 2rem;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .card:nth-child(1) .card-value { color: var(--accent-cyan); }
+        .card:nth-child(2) .card-value { color: var(--accent-blue); }
+        .card:nth-child(3) .card-value { color: var(--sev-critical); }
+        .card:nth-child(4) .card-value { color: var(--sev-low); }
+
+        .card-sub {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 0.35rem;
+        }
+
+        /* ── Grid Sections ─────────────────────────────────── */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+
+        .panel-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .panel-title::before {
+            content: '';
+            display: block;
+            width: 3px;
+            height: 14px;
+            background: var(--accent-cyan);
+            border-radius: 2px;
+        }
+
+        /* ── Charts ────────────────────────────────────────── */
+        .chart-container {
+            position: relative;
+            height: 280px;
+        }
+
+        /* ── Table ─────────────────────────────────────────── */
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+
+        thead th {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        tbody td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+            white-space: nowrap;
+        }
+
+        tbody tr:hover {
+            background: rgba(6, 182, 212, 0.04);
+        }
+
+        .ip-cell {
+            font-weight: 600;
+            color: var(--accent-cyan);
+        }
+
+        .sev-badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 999px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .sev-critical { background: rgba(239, 68, 68, 0.15); color: var(--sev-critical); border: 1px solid rgba(239, 68, 68, 0.3); }
+        .sev-high     { background: rgba(249, 115, 22, 0.15); color: var(--sev-high);     border: 1px solid rgba(249, 115, 22, 0.3); }
+        .sev-medium   { background: rgba(234, 179, 8, 0.15);  color: var(--sev-medium);   border: 1px solid rgba(234, 179, 8, 0.3); }
+        .sev-low      { background: rgba(34, 197, 94, 0.15);  color: var(--sev-low);      border: 1px solid rgba(34, 197, 94, 0.3); }
+
+        .attempt-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .attempt-bar-fill {
+            height: 6px;
+            border-radius: 3px;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+            min-width: 4px;
+        }
+
+        /* ── Map ───────────────────────────────────────────── */
+        #threat-map {
+            height: 380px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .leaflet-container { background: #0d1117; }
+
+        /* ── Full-width panels ─────────────────────────────── */
+        .full-width {
+            margin-bottom: 1.5rem;
+        }
+
+        /* ── Footer ────────────────────────────────────────── */
+        .footer {
+            text-align: center;
+            padding: 1.5rem;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border);
+        }
+
+        /* ── Responsive ────────────────────────────────────── */
+        @media (max-width: 1024px) {
+            .cards { grid-template-columns: repeat(2, 1fr); }
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 640px) {
+            .cards { grid-template-columns: 1fr; }
+            .container { padding: 1rem; }
+            .header { padding: 1rem; flex-direction: column; gap: 0.5rem; }
+            .card-value { font-size: 1.5rem; }
+        }
+
+        /* ── Scrollbar ─────────────────────────────────────── */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    </style>
 </head>
 <body>
-    <h1>Security Dashboard</h1>
-    <p>Up and running.</p>
+
+<!-- ── Header ──────────────────────────────────────────── -->
+<header class="header">
+    <div class="header-title">
+        <div class="shield">&#128737;</div>
+        <h1>SECURITY <span>DASHBOARD</span></h1>
+    </div>
+    <div class="header-status">
+        <div class="status-dot"></div>
+        MONITORING ACTIVE &mdash; SOC CONSOLE
+    </div>
+</header>
+
+<!-- ── Main Content ────────────────────────────────────── -->
+<div class="container">
+
+    <!-- Stat Cards -->
+    <div class="cards">
+        <div class="card">
+            <div class="card-label">Total Attacks Detected</div>
+            <div class="card-value">{{ total_attacks }}</div>
+            <div class="card-sub">{{ total_attempts }} total failed attempts</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Unique Attacker IPs</div>
+            <div class="card-value">{{ unique_ips }}</div>
+            <div class="card-sub">distinct source addresses</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Critical + High Alerts</div>
+            <div class="card-value">{{ critical_count + high_count }}</div>
+            <div class="card-sub">{{ critical_count }} critical / {{ high_count }} high</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Detection Rate</div>
+            <div class="card-value">{{ detection_rate }}%</div>
+            <div class="card-sub">attacks identified from failures</div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid-2">
+        <div class="panel">
+            <div class="panel-title">Attacks per Hour</div>
+            <div class="chart-container">
+                <canvas id="hourlyChart"></canvas>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-title">Severity Distribution</div>
+            <div class="chart-container">
+                <canvas id="severityChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Threat Map -->
+    <div class="panel full-width">
+        <div class="panel-title">Threat Origin Map — IP Geolocation</div>
+        <div id="threat-map"></div>
+    </div>
+
+    <!-- Top Attackers Table -->
+    <div class="panel full-width">
+        <div class="panel-title">Top 10 Attackers</div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>IP Address</th>
+                        <th>Attempts</th>
+                        <th>Visual</th>
+                        <th>Severity</th>
+                        <th>Attack Type</th>
+                        <th>First Seen</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in top_attackers %}
+                    <tr>
+                        <td style="color: var(--text-muted);">{{ loop.index }}</td>
+                        <td class="ip-cell">{{ a.ip }}</td>
+                        <td><strong>{{ a.count }}</strong></td>
+                        <td>
+                            <div class="attempt-bar">
+                                {% set max_count = top_attackers[0].count if top_attackers else 1 %}
+                                <div class="attempt-bar-fill" style="width: {{ (a.count / max_count * 120)|int }}px;"></div>
+                            </div>
+                        </td>
+                        <td><span class="sev-badge sev-{{ a.severity }}">{{ a.severity }}</span></td>
+                        <td>SSH Brute-Force</td>
+                        <td style="color: var(--text-muted);">{{ a.timestamp[:19] | replace('T', ' ') }}</td>
+                        <td style="color: var(--text-muted); font-size: 0.7rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis;">{{ a.details }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<!-- ── Footer ──────────────────────────────────────────── -->
+<footer class="footer">
+    SECURITY DASHBOARD v1.0 &mdash; SSH Brute-Force Detection &amp; Monitoring
+</footer>
+
+<!-- ── Scripts ─────────────────────────────────────────── -->
+<script>
+    // ── Shared chart defaults ──
+    Chart.defaults.color = '#64748b';
+    Chart.defaults.borderColor = '#1e293b';
+    Chart.defaults.font.family = "'SF Mono', 'Fira Code', monospace";
+    Chart.defaults.font.size = 11;
+
+    // ── Attacks per Hour ──
+    new Chart(document.getElementById('hourlyChart'), {
+        type: 'bar',
+        data: {
+            labels: {{ hourly_labels | tojson }},
+            datasets: [{
+                label: 'Attacks',
+                data: {{ hourly_values | tojson }},
+                backgroundColor: 'rgba(6, 182, 212, 0.6)',
+                borderColor: '#06b6d4',
+                borderWidth: 1,
+                borderRadius: 4,
+                hoverBackgroundColor: 'rgba(6, 182, 212, 0.9)',
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1e293b',
+                    titleColor: '#e2e8f0',
+                    bodyColor: '#e2e8f0',
+                    borderColor: '#334155',
+                    borderWidth: 1,
+                    cornerRadius: 8,
+                    padding: 10,
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { maxRotation: 45 }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(30, 41, 59, 0.5)' },
+                    ticks: { stepSize: 1 }
+                }
+            }
+        }
+    });
+
+    // ── Severity Distribution ──
+    new Chart(document.getElementById('severityChart'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Critical', 'High', 'Medium', 'Low'],
+            datasets: [{
+                data: [
+                    {{ sev_counts.critical }},
+                    {{ sev_counts.high }},
+                    {{ sev_counts.medium }},
+                    {{ sev_counts.low }}
+                ],
+                backgroundColor: [
+                    'rgba(239, 68, 68, 0.8)',
+                    'rgba(249, 115, 22, 0.8)',
+                    'rgba(234, 179, 8, 0.8)',
+                    'rgba(34, 197, 94, 0.8)',
+                ],
+                borderColor: '#111827',
+                borderWidth: 3,
+                hoverOffset: 8,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '60%',
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: {
+                        usePointStyle: true,
+                        pointStyle: 'circle',
+                        padding: 16,
+                    }
+                },
+                tooltip: {
+                    backgroundColor: '#1e293b',
+                    titleColor: '#e2e8f0',
+                    bodyColor: '#e2e8f0',
+                    borderColor: '#334155',
+                    borderWidth: 1,
+                    cornerRadius: 8,
+                }
+            }
+        }
+    });
+
+    // ── Threat Map ──
+    const map = L.map('threat-map', {
+        zoomControl: true,
+        scrollWheelZoom: true,
+    }).setView([30, 0], 2);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+        maxZoom: 18,
+    }).addTo(map);
+
+    const sevColors = {
+        critical: '#ef4444',
+        high: '#f97316',
+        medium: '#eab308',
+        low: '#22c55e',
+    };
+
+    fetch('/api/geo')
+        .then(r => r.json())
+        .then(data => {
+            data.forEach(pt => {
+                const color = sevColors[pt.severity] || '#06b6d4';
+                const marker = L.circleMarker([pt.lat, pt.lon], {
+                    radius: 8,
+                    fillColor: color,
+                    color: color,
+                    weight: 2,
+                    opacity: 0.9,
+                    fillOpacity: 0.5,
+                });
+
+                marker.bindPopup(
+                    `<div style="font-family:monospace;font-size:12px;line-height:1.6;">
+                        <strong style="color:${color};">${pt.ip}</strong><br>
+                        <b>Location:</b> ${pt.city}, ${pt.country}<br>
+                        <b>ISP:</b> ${pt.isp}<br>
+                        <b>Severity:</b> <span style="color:${color};font-weight:700;">${pt.severity.toUpperCase()}</span>
+                    </div>`,
+                    { className: 'dark-popup' }
+                );
+
+                marker.addTo(map);
+            });
+
+            // Fit bounds if we have points
+            if (data.length > 0) {
+                const bounds = L.latLngBounds(data.map(p => [p.lat, p.lon]));
+                map.fitBounds(bounds, { padding: [40, 40], maxZoom: 5 });
+            }
+        })
+        .catch(err => console.warn('Geo API unavailable:', err));
+</script>
+
+<!-- Dark popup style for Leaflet -->
+<style>
+    .leaflet-popup-content-wrapper {
+        background: #1e293b !important;
+        color: #e2e8f0 !important;
+        border-radius: 8px !important;
+        border: 1px solid #334155 !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+    }
+    .leaflet-popup-tip { background: #1e293b !important; }
+    .leaflet-popup-close-button { color: #64748b !important; }
+</style>
+
 </body>
 </html>

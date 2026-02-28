@@ -1,14 +1,16 @@
 """SQLite database layer for persisting security alerts."""
 
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-DEFAULT_DB = Path(__file__).resolve().parent.parent.parent / "security.db"
+DEFAULT_DB = Path(os.environ.get("DATABASE_PATH", Path(__file__).resolve().parent.parent.parent / "security.db"))
 
 
 def get_connection(db_path=None):
     db_path = db_path or DEFAULT_DB
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     return conn

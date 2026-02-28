@@ -94,6 +94,17 @@ def index():
     )
 
 
+@dashboard_bp.route("/api/stats")
+def api_stats():
+    """Health check endpoint — returns basic alert stats as JSON."""
+    alerts = _query_alerts()
+    return jsonify({
+        "status": "healthy",
+        "total_alerts": len(alerts),
+        "unique_ips": len({a["ip"] for a in alerts}),
+    })
+
+
 @dashboard_bp.route("/api/geo")
 def api_geo():
     """Return geolocation data for all alert IPs."""
